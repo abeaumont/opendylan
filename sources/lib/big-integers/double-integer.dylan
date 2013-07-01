@@ -10,17 +10,6 @@ Warranty:     Distributed WITHOUT WARRANTY OF ANY KIND
 ///---*** NOTE: Update the calls to machine-word-overflow to signal
 ///---*** the proper condition once we have separate <integer> conditions!
 
-///---*** NOTE: KLUDGE: This is a copy of the make(<double-integer> method
-///---*** which, for some reason, isn't getting properly inlined by the
-///---*** compiler.
-define inline-only function make-<double-integer>
-    (low :: <machine-word>, high :: <machine-word>) => (di :: <double-integer>)
-  let di :: <double-integer> = system-allocate-simple-instance(<double-integer>);
-  %double-integer-low(di) := low;
-  %double-integer-high(di) := high;
-  di
-end function make-<double-integer>;
-
 define inline-only function sign-word (x :: <machine-word>) => (sign :: <machine-word>)
   if (machine-word-less-than?(x, coerce-integer-to-machine-word(0)))
     coerce-integer-to-machine-word(-1)
@@ -30,11 +19,11 @@ define inline-only function sign-word (x :: <machine-word>) => (sign :: <machine
 end function sign-word;
 
 define inline-only function interpret-result-as-abstract-integer
-    (low :: <machine-word>, high :: <machine-word>) => (value :: <integer>)
+    (low :: <machine-word>, high :: <machine-word>) => (value :: <abstract-integer>)
   if (double-integer-is-integer?(low, high))
     coerce-machine-word-to-integer(low)
   else
-    make-<double-integer>(low, high)
+    make(<double-integer>, low: low, high: high)
   end
 end function interpret-result-as-abstract-integer;
 
@@ -42,11 +31,11 @@ end function interpret-result-as-abstract-integer;
 /// Update the values of these variable from the Generic-Arithmetic library
 /// to reflect the extension of the range of acceptable <integer>s.
 
-$minimum-integer := make-<double-integer>($minimum-unsigned-machine-word,
-                                          $minimum-signed-machine-word);
+$minimum-integer := make(<double-integer>, low: $minimum-unsigned-machine-word,
+                         high: $minimum-signed-machine-word);
 
-$maximum-integer := make-<double-integer>($maximum-unsigned-machine-word,
-                                          $maximum-signed-machine-word);
+$maximum-integer := make(<double-integer>, low: $maximum-unsigned-machine-word,
+                         high: $maximum-signed-machine-word);
 
 
 /// <float>/<double-integer> Conversions
@@ -68,27 +57,18 @@ end method as;
 
 
 /// Defines six methods for a binary arithmetic generic function.
-/// Methods for (dylan/<integer>, dylan/<integer>) and (<double-integer>, <double-integer>)
-/// are hand-written.  The methods for (dylan/<integer>, <double-integer>) and
-/// (<double-integer>, dylan/<integer>) simply "promote" the dylan/<integer> to a
+/// Methods for (<double-integer>, <double-integer>) are hand-written.
+/// The methods for (<integer>, <double-integer>) and
+/// (<double-integer>, <integer>) simply "promote" the <integer> to a
 /// <double-integer> and then execute the (<double-integer>, <double-integer>) body.
-/// The methods for (<integer>, <float>) and (<float>, <integer>) convert the <integer>
-/// to a <float> and invoke the appropriate (<float>, <float>) method.
 define macro binary-arithmetic-methods-definer
   { define binary-arithmetic-methods ?:name (?x:name, ?y:name)
-      <integer> =>
-        ?integer:expression;
       <double-integer> (?x-low:name, ?x-high:name, ?y-low:name, ?y-high:name) =>
         ?double-integer:expression;
     end }
     => { define sideways sealed inline method ?name
-             (?x :: dylan/<integer>, ?y :: dylan/<integer>)
-          => (value :: <integer>)
-           ?integer
-         end method ?name;
-         define sideways sealed inline method ?name
-             (?x :: dylan/<integer>, ?y :: <double-integer>)
-          => (value :: <integer>)
+             (?x :: <integer>, ?y :: <double-integer>)
+          => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = coerce-integer-to-machine-word(?x);
            let ?x-high :: <machine-word> = sign-word(?x-low);
            let ?y-low :: <machine-word> = %double-integer-low(?y);
@@ -96,8 +76,8 @@ define macro binary-arithmetic-methods-definer
            ?double-integer
          end method ?name;
          define sideways sealed inline method ?name
-             (?x :: <double-integer>, ?y :: dylan/<integer>)
-          => (value :: <integer>)
+             (?x :: <double-integer>, ?y :: <integer>)
+          => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = %double-integer-low(?x);
            let ?x-high :: <machine-word> = %double-integer-high(?x);
            let ?y-low :: <machine-word> = coerce-integer-to-machine-word(?y);
@@ -106,42 +86,16 @@ define macro binary-arithmetic-methods-definer
          end method ?name;
          define sideways sealed inline method ?name
              (?x :: <double-integer>, ?y :: <double-integer>)
-          => (value :: <integer>)
+          => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = %double-integer-low(?x);
            let ?x-high :: <machine-word> = %double-integer-high(?x);
            let ?y-low :: <machine-word> = %double-integer-low(?y);
            let ?y-high :: <machine-word> = %double-integer-high(?y);
            ?double-integer
-         end method ?name;
-         define sideways sealed inline method ?name
-             (?x :: <float>, ?y :: <integer>) => (value :: <float>)
-           ?name(?x, as(<float>, ?y))
-         end method ?name;
-         define sideways sealed inline method ?name
-             (?x :: <integer>, ?y :: <float>) => (value :: <float>)
-           ?name(as(<float>, ?x), ?y)
-         end method ?name }
+         end method ?name;  }
 end macro binary-arithmetic-methods-definer;
 
 define binary-arithmetic-methods \+ (x, y)
-  <integer> =>
-    begin
-      let mx = interpret-integer-as-machine-word(x);
-      let my = strip-integer-tag(interpret-integer-as-machine-word(y));
-      let (result, overflow?) = machine-word-add-with-overflow(mx, my);
-      if (overflow?)
-        let mx :: <machine-word> = coerce-integer-to-machine-word(x);
-        let my :: <machine-word> = coerce-integer-to-machine-word(y);
-        let (low :: <machine-word>, carry :: <machine-word>)
-          = machine-word-unsigned-add-with-carry(mx, my);
-        let high :: <machine-word>
-          = machine-word-add-signal-overflow(sign-word(mx), sign-word(my));
-        let high :: <machine-word> = machine-word-add-signal-overflow(high, carry);
-        make-<double-integer>(low, high)
-      else
-        interpret-machine-word-as-integer(result)
-      end
-    end;
   <double-integer> (x-low, x-high, y-low, y-high) =>
     begin
       let (low :: <machine-word>, carry :: <machine-word>)
@@ -153,24 +107,6 @@ define binary-arithmetic-methods \+ (x, y)
 end binary-arithmetic-methods \+;
 
 define binary-arithmetic-methods \- (x, y)
-  <integer> =>
-    begin
-      let mx = interpret-integer-as-machine-word(x);
-      let my = strip-integer-tag(interpret-integer-as-machine-word(y));
-      let (result, overflow?) = machine-word-subtract-with-overflow(mx, my);
-      if (overflow?)
-        let mx :: <machine-word> = coerce-integer-to-machine-word(x);
-        let my :: <machine-word> = coerce-integer-to-machine-word(y);
-        let (low :: <machine-word>, borrow :: <machine-word>)
-          = machine-word-unsigned-subtract-with-borrow(mx, my);
-        let high :: <machine-word>
-          = machine-word-subtract-signal-overflow(sign-word(mx), sign-word(my));
-        let high :: <machine-word> = machine-word-subtract-signal-overflow(high, borrow);
-        make-<double-integer>(low, high)
-      else
-        interpret-machine-word-as-integer(result)
-      end
-    end;
   <double-integer> (x-low, x-high, y-low, y-high) =>
     begin
       let (low :: <machine-word>, borrow :: <machine-word>)
@@ -182,23 +118,6 @@ define binary-arithmetic-methods \- (x, y)
 end binary-arithmetic-methods \-;
 
 define binary-arithmetic-methods \* (x, y)
-  <integer> =>
-    begin
-      let mx = strip-integer-tag(interpret-integer-as-machine-word(x));
-      let my = coerce-integer-to-machine-word(y);
-      let (raw-result :: <raw-machine-word>, overflow? :: <boolean>)
-        = primitive-machine-word-multiply-low-with-overflow
-            (primitive-unwrap-machine-word(mx), primitive-unwrap-machine-word(my));
-      let result :: <machine-word> = primitive-wrap-machine-word(raw-result);
-      if (overflow?)
-        let (raw-low :: <raw-machine-word>, raw-high :: <raw-machine-word>)
-          = primitive-machine-word-multiply-low/high(integer-as-raw(x), integer-as-raw(y));
-        make-<double-integer>(primitive-wrap-machine-word(raw-low),
-                              primitive-wrap-machine-word(raw-high))
-      else
-        interpret-machine-word-as-integer(insert-integer-tag(result))
-      end
-    end;
   <double-integer> (x-low, x-high, y-low, y-high) =>
     begin
       let result-negative? = negative?(x) ~= negative?(y);
@@ -221,42 +140,14 @@ define binary-arithmetic-methods \* (x, y)
 end binary-arithmetic-methods \*;
 
 
-/// While there are no \/ methods defined on (<integer>, <integer>) arguments, we'll
-/// define methods for (<integer>, <float>) and (<float>, <integer>) to perform the
-/// division using floating point arithmetic ...
-define sideways sealed inline method \/ (dividend :: <float>, divisor :: <integer>)
- => (result :: <float>)
-  dividend / as(<float>, divisor)
-end method \/;
-
-define sideways sealed inline method \/ (dividend :: <integer>, divisor :: <float>)
- => (result :: <float>)
-  as(<float>, dividend) / divisor
-end method \/;
-
-/// Defines a single method for a unary division generic function which
-/// simply returns its argument and a remainder of zero.
-define macro unary-division-methods-definer
-  { define unary-division-methods ?:name }
-    => { define sideways sealed inline method ?name (x :: <integer>)
-          => (quotient :: <integer>, remainder :: <integer>)
-           values(x, 0)
-         end method ?name }
-end macro unary-division-methods-definer;
-
-define unary-division-methods floor;
-define unary-division-methods ceiling;
-define unary-division-methods round;
-define unary-division-methods truncate;
-
-define constant $machine-half-word-size :: dylan/<integer>
-  = dylan/ash($machine-word-size, -1);
+define constant $machine-half-word-size :: <integer>
+  = ash($machine-word-size, -1);
 
 ///---*** FINISH ME!  (I.e., <double-integer> by <double-integer>, round/)
 
 /// Defines six methods for a binary division function.
-/// The method for (dylan/<integer>, dylan/<integer>) simply invokes the corresponding
-/// method in the Dylan library as it can't overflow or produce non-dylan/<integer> results.
+/// The method for (<integer>, <integer>) simply invokes the corresponding
+/// method in the Dylan library as it can't overflow or produce non-<integer> results.
 /// The remaining three purely "integer" methods are are hand-written.
 /// The methods for (<integer>, <float>) and (<float>, <integer>) convert the <integer>
 /// to a <float> and invoke the appropriate (<float>, <float>) method.
@@ -272,18 +163,13 @@ define macro division-methods-definer
         ?double-integer-double-integer:expression;
     end }
     => { define sideways sealed inline method ?name
-             (?dividend :: dylan/<integer>, ?divisor :: dylan/<integer>)
-          => (quotient :: dylan/<integer>, remainder :: dylan/<integer>)
-           "dylan/" ## ?name(?dividend, ?divisor)
-         end method ?name;
-         define sideways sealed inline method ?name
-             (?dividend :: dylan/<integer>, ?divisor :: <double-integer>)
-          => (quotient :: dylan/<integer>, remainder :: <integer>)
+             (?dividend :: <integer>, ?divisor :: <double-integer>)
+          => (quotient :: <integer>, remainder :: <integer>)
            ?integer-double-integer
          end method ?name;
          define sideways sealed inline method ?name
-             (?dividend :: <double-integer>, ?divisor :: dylan/<integer>)
-          => (quotient :: <integer>, remainder :: dylan/<integer>)
+             (?dividend :: <double-integer>, ?divisor :: <integer>)
+          => (quotient :: <integer>, remainder :: <integer>)
            let ?dividend-low :: <machine-word> = %double-integer-low(?dividend);
            let ?dividend-high :: <machine-word> = %double-integer-high(?dividend);
            let ?divisor-low :: <machine-word> = coerce-integer-to-machine-word(?divisor);
@@ -297,20 +183,10 @@ define macro division-methods-definer
            let ?divisor-low :: <machine-word> = %double-integer-low(?divisor);
            let ?divisor-high :: <machine-word> = %double-integer-high(?divisor);
            ?double-integer-double-integer
-         end method ?name;
-         define sideways sealed inline method ?name
-             (dividend :: <float>, divisor :: <integer>)
-          => (quotient :: <integer>, remainder :: <float>)
-           ?name(dividend, as(<float>, divisor))
-         end method ?name;
-         define sideways sealed inline method ?name
-             (dividend :: <integer>, divisor :: <float>)
-          => (quotient :: <integer>, remainder :: <float>)
-           ?name(as(<float>, dividend), divisor)
-                end method ?name }
+         end method ?name }
 end macro division-methods-definer;
 
-/// The "guts" of truncate/(<double-integer>, dylan/<integer>) is split out into
+/// The "guts" of truncate/(<double-integer>, <integer>) is split out into
 /// this function so that it can be used by the floor/, ceiling/, and round/ implementations.
 /// It does its job by treating the <double-integer> as a three digit value and doing
 /// good old fashioned long division.  (Treating the <double-integer> as a two digit value
@@ -319,9 +195,9 @@ end macro division-methods-definer;
 define inline-only function double-integer-by-integer-truncate/
     (dividend :: <double-integer>, dividend-low :: <machine-word>,
      dividend-high :: <machine-word>,
-     divisor :: dylan/<integer>, divisor-low :: <machine-word>)
+     divisor :: <integer>, divisor-low :: <machine-word>)
  => (quotient-low :: <machine-word>, quotient-high :: <machine-word>,
-     remainder :: dylan/<integer>)
+     remainder :: <integer>)
   let quotient-sign :: <machine-word>
     = if (negative?(dividend) ~= negative?(divisor))
         coerce-integer-to-machine-word(-1)
@@ -370,7 +246,7 @@ define inline-only function double-integer-by-integer-truncate/
          machine-word-unsigned-shift-right
            (machine-word-unsigned-shift-left(quotient-low, $machine-half-word-size),
             $machine-half-word-size));
-  let remainder :: dylan/<integer> = coerce-machine-word-to-integer(remainder);
+  let remainder :: <integer> = coerce-machine-word-to-integer(remainder);
   //
   // If the remainder is non-zero and the quotient is negative, the above code will
   // produce a quotient that's off by one so we must adjust both it and the remainder...
@@ -386,7 +262,7 @@ define inline-only function double-integer-by-integer-truncate/
       else
         coerce-integer-to-machine-word(0)
       end;
-  let remainder-adjust :: dylan/<integer>
+  let remainder-adjust :: <integer>
     = if (adjust-result?)
         divisor
       else
@@ -398,7 +274,7 @@ define inline-only function double-integer-by-integer-truncate/
     = machine-word-add-signal-overflow(quotient-high, sign-word(quotient-low-adjust));
   let quotient-high :: <machine-word>
     = machine-word-add-signal-overflow(quotient-high, carry);
-  let remainder :: dylan/<integer> = dylan/-(remainder, remainder-adjust);
+  let remainder :: <integer> = remainder - remainder-adjust;
   values(quotient-low, quotient-high, remainder)
 end function double-integer-by-integer-truncate/;
 
@@ -414,8 +290,8 @@ define division-methods floor/ (dividend, divisor)
     end;
   double-integer/integer:
     begin
-      let (quotient-low :: <machine-word>, quotient-high :: <machine-word>,
-           remainder :: dylan/<integer>)
+      let (quotient-low :: <machine-word>, quotient-high :: <machine-word>, 
+           remainder :: <integer>)
         = double-integer-by-integer-truncate/(dividend, dividend-low, dividend-high,
                                               divisor, divisor-low);
       if (~zero?(remainder) & if (negative?(divisor))
@@ -453,8 +329,8 @@ define division-methods ceiling/ (dividend, divisor)
     end;
   double-integer/integer:
     begin
-      let (quotient-low :: <machine-word>, quotient-high :: <machine-word>,
-           remainder :: dylan/<integer>)
+      let (quotient-low :: <machine-word>, quotient-high :: <machine-word>, 
+           remainder :: <integer>)
         = double-integer-by-integer-truncate/(dividend, dividend-low, dividend-high,
                                               divisor, divisor-low);
       if (~zero?(remainder) & if (negative?(divisor))
@@ -505,7 +381,7 @@ define division-methods truncate/ (dividend, divisor)
   double-integer/integer:
     begin
       let (quotient-low :: <machine-word>, quotient-high :: <machine-word>,
-           remainder :: dylan/<integer>)
+           remainder :: <integer>)
         = double-integer-by-integer-truncate/(dividend, dividend-low, dividend-high,
                                               divisor, divisor-low);
       values(interpret-result-as-abstract-integer(quotient-low, quotient-high),
@@ -518,47 +394,15 @@ define division-methods truncate/ (dividend, divisor)
 end division-methods truncate/;
 
 
-/// Defines three methods for the modulo and remainder generic functions.
-/// The (<integer>, <integer>) method invokes the appropriate binary division function
-/// and returns its second value (i.e., the remainder).
-/// The methods for (<integer>, <float>) and (<float>, <integer>) convert the <integer>
-/// to a <float> and invoke the appropriate (<float>, <float>) method.
-define macro division-remainder-methods-definer
-  { define division-remainder-methods ?:name ?function:name }
-    => { define sideways sealed inline method ?name
-             (dividend :: <integer>, divisor :: <integer>) => (remainder :: <integer>)
-           let (quotient :: <integer>, remainder :: <integer>) = ?function(dividend, divisor);
-           remainder
-         end method ?name;
-         define sideways sealed inline method ?name
-             (dividend :: <float>, divisor :: <integer>) => (remainder :: <float>)
-           ?name(dividend, as(<float>, divisor))
-         end method ?name;
-         define sideways sealed inline method ?name
-             (dividend :: <integer>, divisor :: <float>) => (remainder :: <float>)
-           ?name(as(<float>, dividend), divisor)
-                end method ?name }
-end macro division-remainder-methods-definer;
-
-define division-remainder-methods modulo floor/;
-define division-remainder-methods remainder truncate/;
-
-
 /// Defines two methods for a unary sign changing generic function (i.e., abs or negative).
 /// Both methods are hand written.
 define macro unary-arithmetic-methods-definer
   { define unary-arithmetic-methods ?:name (?x:name)
-      <integer> =>
-        ?integer:expression;
       <double-integer> (?x-low:name, ?x-high:name) =>
         ?double-integer:expression;
     end }
-    => { define sideways sealed inline method ?name (?x :: dylan/<integer>)
-          => (value :: <integer>)
-           ?integer
-         end method ?name;
-         define sideways sealed inline method ?name (?x :: <double-integer>)
-          => (value :: <integer>)
+    => { define sideways sealed inline method ?name (?x :: <double-integer>)
+          => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = %double-integer-low(?x);
            let ?x-high :: <machine-word> = %double-integer-high(?x);
            ?double-integer
@@ -567,21 +411,6 @@ end macro unary-arithmetic-methods-definer;
 
 /// NOTE: Presumes twos-complement arithmetic!
 define unary-arithmetic-methods negative (x)
-  <integer> =>
-    begin
-      let mx = strip-integer-tag(interpret-integer-as-machine-word(x));
-      let (mresult, overflow?) = machine-word-negative-with-overflow(mx);
-      if (overflow?)
-        let low-1 :: <machine-word> = machine-word-lognot(coerce-integer-to-machine-word(x));
-        let high-1 :: <machine-word> = sign-word(low-1);
-        let (low :: <machine-word>, carry :: <machine-word>)
-          = machine-word-unsigned-add-with-carry(low-1, coerce-integer-to-machine-word(1));
-        let high :: <machine-word> = machine-word-add-signal-overflow(high-1, carry);
-        make-<double-integer>(low, high)
-      else
-        interpret-machine-word-as-integer(insert-integer-tag(mresult))
-      end
-    end;
   <double-integer> (x-low, x-high) =>
     begin
       let low-1 :: <machine-word> = machine-word-lognot(x-low);
@@ -595,22 +424,6 @@ end unary-arithmetic-methods negative;
 
 /// NOTE: Presumes twos-complement arithmetic!
 define unary-arithmetic-methods abs (x)
-  <integer> =>
-    begin
-      let mx = strip-integer-tag(interpret-integer-as-machine-word(x));
-      let (mresult, overflow?) = machine-word-abs-with-overflow(mx);
-      if (overflow?)
-        // We could only overflow if we actually tried to negate the input value ...
-        let low-1 :: <machine-word> = machine-word-lognot(coerce-integer-to-machine-word(x));
-        let high-1 :: <machine-word> = sign-word(low-1);
-        let (low :: <machine-word>, carry :: <machine-word>)
-          = machine-word-unsigned-add-with-carry(low-1, coerce-integer-to-machine-word(1));
-        let high :: <machine-word> = machine-word-add-signal-overflow(high-1, carry);
-        make-<double-integer>(low, high)
-      else
-        interpret-machine-word-as-integer(insert-integer-tag(mresult))
-      end
-    end;
   <double-integer> (x-low, x-high) =>
     begin
       if (negative?(x))
@@ -627,85 +440,32 @@ define unary-arithmetic-methods abs (x)
 end unary-arithmetic-methods abs;
 
 
-define sideways sealed method \^ (base :: <integer>, power :: <integer>)
- => (res :: <rational>)
-  if (negative?(power))
-    //---*** THIS IS WRONG AS / ISN'T DEFINED FOR <integer>!
-    1 / (base ^ -power)
-  elseif (base = 2)
-    ash(1, power)
-  elseif (negative?(base))
-    if (odd?(power)) -(-base ^ power) else (-base ^ power) end
-  else
-    // Avoids squaring on last iteration to prevent premature overflow ...
-    iterate loop (base :: <integer> = if (power > 1) base * base else base end,
-                  p :: <integer> = ash(power, -1),
-                  x :: <integer> = if (odd?(power)) base else 1 end)
-      if (zero?(p))
-        x
-      else
-        loop(if (p > 1) base * base else base end,
-             ash(p, -1),
-             if (odd?(p)) base * x else x end)
-      end if
-    end iterate
-  end if
-end method \^;
-
-
-/// Defines two methods for a shift generic function as well as four helper methods.
-/// Two of the helper methods shift left while the other two shift right.  All helper
-/// methods are hand-written.  At present, the helper methods to shift dylan/<integer>s
-/// simply "promote" the value to a <double-integer> and execute that method.  At some
-/// point, we should implement dylan/<integer> specific methods but they're tricky when
-/// shifting left due to potential overflows.
+/// Defines a method for a shift generic function as well as two helper methods.
+/// A helper methods shifts left while the other one shifts right.  All helper
+/// methods are hand-written.
 define macro shift-methods-definer
   { define shift-methods ?:name (?x:name, ?shift:name) (?x-low:name, ?x-high:name)
       left:  ?left:expression;
       right: ?right:expression;
     end }
-    => { define sideways sealed inline method ?name
-             (?x :: dylan/<integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
+    => { define sideways sealed inline method ?name 
+             (?x :: <double-integer>, ?shift :: <integer>) => (value :: <abstract-integer>)
            if (negative?(?shift))
-             let ?shift :: dylan/<integer> = min(dylan/negative(?shift),
-                                                 dylan/*(2, $machine-word-size));
+             let ?shift :: <integer> = min(negative(?shift), 2 * $machine-word-size);
              ?name ## "-right"(?x, ?shift)
            else
-             let ?shift :: dylan/<integer> = min(?shift, dylan/*(2, $machine-word-size));
-             ?name ## "-left"(?x, ?shift)
-           end
-         end method ?name;
-         define sideways sealed inline method ?name
-             (?x :: <double-integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
-           if (negative?(?shift))
-             let ?shift :: dylan/<integer> = min(dylan/negative(?shift),
-                                                 dylan/*(2, $machine-word-size));
-             ?name ## "-right"(?x, ?shift)
-           else
-             let ?shift :: dylan/<integer> = min(?shift, dylan/*(2, $machine-word-size));
+             let ?shift :: <integer> = min(?shift, 2 * $machine-word-size);
              ?name ## "-left"(?x, ?shift)
            end
          end method ?name;
          define sealed inline method ?name ## "-left"
-             (?x :: dylan/<integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
-           let ?x-low :: <machine-word> = coerce-integer-to-machine-word(?x);
-           let ?x-high :: <machine-word> = sign-word(?x-low);
-           ?left
-         end method ?name ## "-left";
-         define sealed inline method ?name ## "-right"
-             (?x :: dylan/<integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
-           let ?x-low :: <machine-word> = coerce-integer-to-machine-word(?x);
-           let ?x-high :: <machine-word> = sign-word(?x-low);
-           ?right
-         end method ?name ## "-right";
-         define sealed inline method ?name ## "-left"
-             (?x :: <double-integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
+             (?x :: <double-integer>, ?shift :: <integer>) => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = %double-integer-low(?x);
            let ?x-high :: <machine-word> = %double-integer-high(?x);
            ?left
          end method ?name ## "-left";
          define sealed inline method ?name ## "-right"
-             (?x :: <double-integer>, ?shift :: dylan/<integer>) => (value :: <integer>)
+             (?x :: <double-integer>, ?shift :: <integer>) => (value :: <abstract-integer>)
            let ?x-low :: <machine-word> = %double-integer-low(?x);
            let ?x-high :: <machine-word> = %double-integer-high(?x);
            ?right
@@ -731,7 +491,7 @@ define shift-methods ash (x, shift) (x-low, x-high)
               | ~machine-word-equal?(x-high, sign-word(x-low)))
           machine-word-overflow()
         end;
-        let shift :: dylan/<integer> = dylan/-(shift, $machine-word-size);
+        let shift :: <integer> = shift - $machine-word-size;
         if (shift = $machine-word-size)
           // Primitives can't shift by the full size of a machine word so
           // we'll perform two half-word shifts instead.  (Note that this
@@ -755,18 +515,18 @@ define shift-methods ash (x, shift) (x-low, x-high)
                                  machine-word-logand(low-high,
                                                      machine-word-unsigned-shift-left
                                                        (coerce-integer-to-machine-word(-1),
-                                                        dylan/-($machine-word-size, shift))));
+                                                        $machine-word-size - shift)));
         interpret-result-as-abstract-integer(result-low, result-high)
       else
         // Shifting right by more than a word --
         //   Only high part of the <double-integer> contributes to the result.
-        let shift :: dylan/<integer> = dylan/-(shift, $machine-word-size);
+        let shift :: <integer> = shift - $machine-word-size;
         if (shift < $machine-word-size)
           let result-high :: <machine-word> = sign-word(x-high);
           let result-low :: <machine-word> = machine-word-shift-right(x-high, shift);
           interpret-result-as-abstract-integer(result-low, result-high)
         else
-          // Shifting right by 2 words (or more) just propagates the sign bit ...
+          // Shifting right by 2 words (or more) just propogates the sign bit ...
           if (negative?(x)) -1 else 0 end
         end
       end
@@ -783,7 +543,7 @@ define shift-methods lsh (x, shift) (x-low, x-high)
       else
         // Shifting left by more than a word --
         //    Only low part of the <double-integer> contributes to the result
-        let shift :: dylan/<integer> = dylan/-(shift, $machine-word-size);
+        let shift :: <integer> = shift - $machine-word-size;
         if (shift < $machine-word-size)
           let result-high :: <machine-word> = machine-word-unsigned-shift-left(x-low, shift);
           interpret-result-as-abstract-integer(coerce-integer-to-machine-word(0), result-high)
@@ -802,7 +562,7 @@ define shift-methods lsh (x, shift) (x-low, x-high)
       else
         // Shifting right by more than a word --
         //   Only high part of the <double-integer> contributes to the result.
-        let shift :: dylan/<integer> = dylan/-(shift, $machine-word-size);
+        let shift :: <integer> = shift - $machine-word-size;
         if (shift < $machine-word-size)
           let result-low :: <machine-word> = machine-word-unsigned-shift-right(x-high, shift);
           interpret-result-as-abstract-integer(result-low, coerce-integer-to-machine-word(0))
@@ -815,32 +575,25 @@ define shift-methods lsh (x, shift) (x-low, x-high)
 end shift-methods lsh;
 
 
-/// Defines four methods for a binary logical generic function.
-/// The method for (dylan/<integer>, dylan/<integer>) simply invokes the corresponding
-/// method in the Dylan library as it can't overflow or produce non-dylan/<integer> results.
-/// The remaining three methods are fairly straightforward.
+/// Defines three methods for a binary logical generic function.
 define macro binary-logical-methods-definer
   { define binary-logical-methods ?:name ?binary:name ?lowlevel:name }
-    => { define sideways inline method ?binary (x :: dylan/<integer>, y :: dylan/<integer>)
-          => (result :: <integer>)
-           "dylan/" ## ?name(x, y)
-         end method ?binary;
-         define sideways inline method ?binary (x :: dylan/<integer>, y :: <double-integer>)
-          => (result :: <integer>)
+    => { define sideways inline method ?binary (x :: <integer>, y :: <double-integer>)
+          => (result :: <abstract-integer>)
            let x-low :: <machine-word> = coerce-integer-to-machine-word(x);
            let low :: <machine-word> = ?lowlevel(x-low, %double-integer-low(y));
            let high :: <machine-word> = ?lowlevel(sign-word(x-low), %double-integer-high(y));
            interpret-result-as-abstract-integer(low, high)
          end method ?binary;
-         define sideways inline method ?binary (x :: <double-integer>, y :: dylan/<integer>)
-          => (result :: <integer>)
+         define sideways inline method ?binary (x :: <double-integer>, y :: <integer>)
+          => (result :: <abstract-integer>)
            let y-low :: <machine-word> = coerce-integer-to-machine-word(y);
            let low :: <machine-word> = ?lowlevel(%double-integer-low(x), y-low);
            let high :: <machine-word> = ?lowlevel(%double-integer-high(x), sign-word(y-low));
            interpret-result-as-abstract-integer(low, high)
          end method ?binary;
          define sideways inline method ?binary (x :: <double-integer>, y :: <double-integer>)
-          => (result :: <integer>)
+          => (result :: <abstract-integer>)
            let low :: <machine-word> = ?lowlevel(%double-integer-low(x),
                                                  %double-integer-low(y));
            let high :: <machine-word> = ?lowlevel(%double-integer-high(x),
@@ -855,22 +608,13 @@ define binary-logical-methods logior;
 define binary-logical-methods logxor;
 define binary-logical-methods logand;
 
-define sideways inline method lognot (x :: dylan/<integer>) => (result :: <integer>)
-  dylan/lognot(x)
-end method lognot;
-
-define sideways inline method lognot (x :: <double-integer>) => (result :: <integer>)
+define sideways inline method lognot (x :: <double-integer>) => (result :: <abstract-integer>)
   let low :: <machine-word> = machine-word-lognot(%double-integer-low(x));
   let high :: <machine-word> = machine-word-lognot(%double-integer-high(x));
   interpret-result-as-abstract-integer(low, high)
 end method lognot;
 
-define sideways inline method logbit? (bitno :: dylan/<integer>, x :: dylan/<integer>)
- => (set? :: <boolean>)
-  dylan/logbit?(bitno, x)
-end method logbit?;
-
-define sideways inline method logbit? (bitno :: dylan/<integer>, x :: <double-integer>)
+define sideways inline method logbit? (bitno :: <integer>, x :: <double-integer>)
  => (set? :: <boolean>)
   case
     bitno < 0 =>
@@ -879,32 +623,28 @@ define sideways inline method logbit? (bitno :: dylan/<integer>, x :: <double-in
     bitno < $machine-word-size =>
       machine-word-logbit?(bitno, %double-integer-low(x));
     bitno < 2 * $machine-word-size =>
-      machine-word-logbit?(dylan/-(bitno, $machine-word-size), %double-integer-high(x));
+      machine-word-logbit?(bitno - $machine-word-size, %double-integer-high(x));
     otherwise =>
       negative?(x)
   end
 end method logbit?;
 
 
-/// Defines four methods on a binary algebraic generic function.
-/// All four methods use the same hand-written body, relying on the compiler to optimize
+/// Defines three methods on a binary algebraic generic function.
+/// All three methods use the same hand-written body, relying on the compiler to optimize
 /// the individual cases based on its knowledge of the parameter types.
 define macro algebraic-methods-definer
   { define algebraic-methods ?:name (?n:name, ?m:name) ?:body end }
-    => { define sideways sealed method ?name (?n :: dylan/<integer>, ?m :: dylan/<integer>)
-          => (result :: <integer>)
+    => { define sideways sealed method ?name (?n :: <integer>, ?m :: <double-integer>)
+          => (result :: <abstract-integer>)
            ?body
          end method ?name;
-         define sideways sealed method ?name (?n :: dylan/<integer>, ?m :: <double-integer>)
-          => (result :: <integer>)
-           ?body
-         end method ?name;
-         define sideways sealed method ?name (?n :: <double-integer>, ?m :: dylan/<integer>)
-          => (result :: <integer>)
+         define sideways sealed method ?name (?n :: <double-integer>, ?m :: <integer>)
+          => (result :: <abstract-integer>)
            ?body
          end method ?name;
          define sideways sealed method ?name (?n :: <double-integer>, ?m :: <double-integer>)
-          => (result :: <integer>)
+          => (result :: <abstract-integer>)
            ?body
          end method ?name }
 end macro algebraic-methods-definer;
@@ -925,8 +665,8 @@ define algebraic-methods gcd (n, m)
       n;
     otherwise =>
       for (k :: <integer> from 0,
-           u :: <integer> = abs(n) then ash(u, -1),
-           v :: <integer> = abs(m) then ash(v, -1),
+           u :: <abstract-integer> = abs(n) then ash(u, -1),
+           v :: <abstract-integer> = abs(m) then ash(v, -1),
            until: odd?(logior(u, v)))
       finally
         block (return)
@@ -960,7 +700,7 @@ define constant $number-characters = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 ///---*** NOTE: This really wants to be a method on integer-to-string but that's a function!
 define sideways method number-to-string (n :: <double-integer>) => (s :: <string>)
   let buffer = make(<stretchy-vector>);
-  local method process-integer (arg :: <integer>) => ()
+  local method process-integer (arg :: <abstract-integer>) => ()
           let (quotient, remainder) = truncate/(arg, 10);
           unless (zero?(quotient))
             process-integer(quotient)

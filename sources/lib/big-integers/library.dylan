@@ -8,27 +8,25 @@ Warranty:     Distributed WITHOUT WARRANTY OF ANY KIND
 
 define library big-integers
   use dylan;
-  use generic-arithmetic;
   use common-dylan, import: { common-extensions };
 
   export big-integers;
 end library big-integers;
 
 define module big-integers
-  use generic-arithmetic, export: all;
+  use dylan-arithmetic, export: all;
+  use dylan-extensions,
+    import: {<double-integer>, <machine-word>},
+    export: all;
 end module big-integers;
 
 define module big-integers-internal
   use dylan-excluding-arithmetic;
-  use dylan-arithmetic,
-    prefix: "dylan/";
+  use dylan-arithmetic;
   use machine-word-lowlevel;
   use big-integers;
   use dylan-primitives;
-  use dylan-extensions,
-    rename: {generic-binary-logior => binary-logior,
-             generic-binary-logxor => binary-logxor,
-             generic-binary-logand => binary-logand};
+  use dylan-extensions;
   use common-extensions,
     import: {number-to-string, machine-word-to-string};
 end module big-integers-internal;

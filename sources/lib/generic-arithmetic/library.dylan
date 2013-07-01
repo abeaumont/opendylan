@@ -24,6 +24,7 @@ define module generic-arithmetic
               generic-logand => logand},
     export: all;
   create $minimum-integer, $maximum-integer,
+/*
          range, <range>,
          \+, \-, \*, \/,
          negative,
@@ -36,6 +37,7 @@ define module generic-arithmetic
          logbit?,
          ash, lsh,
          lcm, gcd,
+*/
          \for;
 end module generic-arithmetic;
 
