@@ -70,10 +70,10 @@ define sealed method make (class == <integer>, #rest all-keys, #key) => (res)
   uninstantiable-error(class);
 end method;
 
-define constant $minimum-integer
+define variable $minimum-integer
   = interpret-machine-word-as-integer(force-integer-tag($minimum-signed-machine-word));
 
-define constant $maximum-integer
+define variable $maximum-integer
   = interpret-machine-word-as-integer(force-integer-tag($maximum-signed-machine-word));
 
 define inline method contagious-type
