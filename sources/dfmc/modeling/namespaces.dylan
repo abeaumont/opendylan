@@ -1692,6 +1692,9 @@ define &module dylan
 
    abs,
 
+   binary-logior,
+   binary-logxor,
+   binary-logand,
    logior,
    logxor,
    logand,

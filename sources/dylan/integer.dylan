@@ -241,17 +241,17 @@ define method \^
   end if
 end method \^;
 
-define sealed method logior (#rest integers) => (logior :: <integer>)
+define function logior (#rest integers) => (logior :: <integer>)
   reduce(binary-logior, 0, integers)
-end method logior;
+end function logior;
 
-define sealed method logxor (#rest integers) => (logxor :: <integer>)
+define function logxor (#rest integers) => (logxor :: <integer>)
   reduce(binary-logxor, 0, integers)
-end method logxor;
+end function logxor;
 
-define sealed method logand (#rest integers) => (logand :: <integer>)
+define function logand (#rest integers) => (logand :: <integer>)
   reduce(binary-logand, -1, integers)
-end method logand;
+end function logand;
 
 // TODO: These can't be inline-only until reduce is inlined.
 

@@ -604,9 +604,9 @@ define macro binary-logical-methods-definer
     => { define binary-logical-methods ?name "binary-" ## ?name "machine-word-" ## ?name }
 end macro binary-logical-methods-definer;
 
-define binary-logical-methods logior;
-define binary-logical-methods logxor;
-define binary-logical-methods logand;
+define binary-logical-methods binary-logior;
+define binary-logical-methods binary-logxor;
+define binary-logical-methods binary-logand;
 
 define sideways inline method lognot (x :: <double-integer>) => (result :: <abstract-integer>)
   let low :: <machine-word> = machine-word-lognot(%double-integer-low(x));

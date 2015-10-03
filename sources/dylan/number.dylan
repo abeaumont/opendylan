@@ -111,19 +111,19 @@ define open generic lsh (integer1 :: <abstract-integer>, count :: <integer>)
  => (#rest values :: <object>);
 define sealed domain lsh (<machine-number>);
 
-define macro n-ary-logical-function-definer
-  { define n-ary-logical-function ?:name (?domain:name) }
-  => { define open generic ?name (#rest integers :: <abstract-integer>)
-         => (#rest values :: <object>);
+define macro binary-logical-function-definer
+  { define binary-logical-function ?:name (?domain:name) }
+  => { define open generic ?name (integer1 :: <abstract-integer>, integer2 :: <abstract-integer>)
+         => (result :: <abstract-integer>);
        define sealed domain ?name (?domain) }
   // Default sealed domain to (<machine-number>)
-  { define n-ary-logical-function ?:name }
-  => { define n-ary-logical-function ?name (<machine-number>) }
-end macro n-ary-logical-function-definer;
+  { define binary-logical-function ?:name }
+  => { define binary-logical-function ?name (<machine-number>) }
+end macro binary-logical-function-definer;
 
-define n-ary-logical-function logior;
-define n-ary-logical-function logxor;
-define n-ary-logical-function logand;
+define binary-logical-function binary-logior;
+define binary-logical-function binary-logxor;
+define binary-logical-function binary-logand;
 
 define open generic lognot (integer1 :: <abstract-integer>)
  => (#rest values :: <object>);
